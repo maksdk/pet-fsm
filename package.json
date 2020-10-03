@@ -1,0 +1,19 @@
+{
+    "name": "my-pet-fsm",
+    "version": "1.0.0",
+    "description": "",
+    "main": "src/index.ts",
+    "scripts": {
+        "compile": "tsc src/index.ts ",
+        "dev": "webpack --mode development ./src/index.js --output ./dist/main.js --watch",
+        "build": "webpack --mode production ./src/index.js --output ./dist/main.js"
+    },
+    "keywords": [],
+    "author": "Maksym Havryshchenko",
+    "license": "ISC",
+    "devDependencies": {
+        "webpack": "^4.44.2",
+        "webpack-cli": "^3.3.12"
+    },
+    "dependencies": {}
+}
