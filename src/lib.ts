@@ -1,6 +1,8 @@
 
+// TODO: Add parallel states
 // TODO: Create arrow functions insted of class methods to hide FSM functional
 // TODO: May remove the children / fullPath ? They are not used now
+// TODO: Get all events names in the beginning to check they in 'onStart' method and delete _checkAmongAllEvent method
 
 const last = (collection) => collection[collection.length - 1];
 
@@ -8,6 +10,7 @@ export interface IFSM {
     onStart(): void;
     onStop(): void; 
     onSend(name: string): void;
+    getCurrentStateId(): string;
 }
 
 export interface IStateNode {
@@ -96,6 +99,7 @@ export abstract class StateNode implements IStateNode {
 
 
 export class FSM implements IFSM {
+    private _rooId = 'Root';
     private _isStopped = false;
     private _isStarted = false;
     private _graph: IGraph = {};
@@ -104,31 +108,42 @@ export class FSM implements IFSM {
     private _statesStack: IStatesStackLeaf[] = [];
 
     constructor(config: IFSMConfig, private readonly states: Map<string, IConstructableStateNode>) {
+
+        if (Object.keys(config).length === 0) {
+            console.error(`Is not valid config: "${config}"`);
+            throw new Error();
+        }
+
+        /**
+         * Check config and states
+         */
         this._checkMachineConfig(config);
+
+
+        /**
+         * Create one-dimensional graph
+         */
         this._graph = this._makeGraph(config);
     }
 
     /**
      * @description Starts the machine. Creates the initial state
      */
-    public onStart() {
+    public async onStart() {
         if (this._isStopped) return;
         if (this._isStarted) return;
 
         this._isStarted = true;
 
-        this._enterToStateById('Root');
+        this._enterToStateById(this._rooId);
 
-        console.log('START: ');
-        console.log(this._leafsStack);
-
-        this._executeTransition();
+        await this._executeTransition();
     }
 
     /**
      * @description Stops the machine.
      */
-    public onStop() {
+    public async onStop() {
         if (this._isStopped) return;
         if (!this._isStarted) return;
     
@@ -136,27 +151,34 @@ export class FSM implements IFSM {
         this._graph = {};
         this._leafsStack = [];
         this._currentOrder = -1;
+       
+        const promises = this._statesStack.map(({ state }) => state.onExit());
         this._statesStack = [];
+
+        return Promise.all(promises);
     }
 
     /**
      * @description Sends an event to the machine.
      * @param {string} name
      */
-    public onSend(eventName: string) {
+    public async onSend(eventName: string) {
         if (this._isStopped) return;
         if (!this._isStarted) return;
 
-        if (!this._isValidEvent(this._graph, eventName)) {
+        if (!this._checkAmongAllEvent(this._graph, eventName)) {
             console.warn(`Event: "${eventName}" is not registered in the machine`);
+            return;
+        }
+
+        if (!this._checkEventInStack(eventName)) {
+            console.warn(`Event: "${eventName}" is not found in the current state tree`);
             return;
         }
     
         this._exitFromStateByEvent(eventName);
-        console.log('Send: ');
-        console.log(this._leafsStack);
 
-        this._executeTransition();    
+        await this._executeTransition();    
     }
 
     /**
@@ -165,6 +187,24 @@ export class FSM implements IFSM {
      */
     public onUpdate(dt: number) {
         this._statesStack.forEach(({state, running}) =>  running && state.onUpdate(dt));
+    }
+
+    /**
+     * @description Get id of current running state.
+     * @returns {string}
+     */
+    public getCurrentStateId(): string {
+        if (!this._isStarted) {
+            console.warn('Machine is not started yet !!!');
+            return '';
+        }
+
+        if (this._isStopped) {
+            console.warn('Machine is already stopped !!!');
+            return '';
+        }
+
+        return last(this._statesStack).state.id;
     }
 
     private async _executeTransition() {
@@ -261,14 +301,13 @@ export class FSM implements IFSM {
             }
         }
 
-        console.log('States: ', newStateStack)
 
         this._statesStack = newStateStack;
     }
 
     private _makeGraph(config: IStateConfig) {
 
-        const iter = (tree: IStateConfig, parent = null, nodeId = 'Root', leafs = {}, path = []) => {
+        const iter = (tree: IStateConfig, parent, nodeId, leafs = {}, path = []) => {
             if (!tree.states) {
                 return {
                     ...leafs,
@@ -299,7 +338,7 @@ export class FSM implements IFSM {
             };
         };
         
-        return iter(config);
+        return iter(config, null, this._rooId);
     }
 
     private _exitFromStateByEvent(eventName: string) {
@@ -329,7 +368,7 @@ export class FSM implements IFSM {
         }
     }
 
-    private _isValidEvent(graph: IGraph, eventName: string) {
+    private _checkAmongAllEvent(graph: IGraph, eventName: string) {
         const result = Object.values(graph).filter(({ transitions }) => {
             if (transitions.hasOwnProperty(eventName)) return true;
             return false;
@@ -337,18 +376,49 @@ export class FSM implements IFSM {
         return result.length > 0;
     }
 
-    private _checkMachineConfig(config: IStateConfig) {
+    private _checkEventInStack(eventName: string): boolean {
+
+        const iter = (index: number, stack: IStackLeaf[]) => {
+            if (!stack[index]) return false;
+
+            const child = stack[index];
+
+            if (!child.transitions.hasOwnProperty(eventName)) {
+                return iter(index -= 1, stack);
+            }
+
+            return true;
+        }
+
+        return iter(this._leafsStack.length - 1, this._leafsStack)
+    }
+
+    private _checkMachineConfig(config: IStateConfig): void | never {
         this._checkConfig(config);
 
         this._checkTransions(config.states);
 
         if (config.states) {
+
+            this._checkStatesList(config.states);
+
             Object.values(config.states)
                 .forEach((s) => this._checkMachineConfig(s))
         }
     }
 
-    private _checkConfig(config: IStateConfig) {
+    private _checkStatesList(states: { [key: string]: any }): boolean | never {
+        Object.keys(states).forEach((key) => {
+            if (!this.states.has(key)) {
+                console.error(`Such state: "${key}" is not found in states list !!!`);
+                throw new Error();
+            }
+        });
+
+        return true;
+    }
+
+    private _checkConfig(config: IStateConfig): boolean | never  {
         if (typeof config !== 'object') {
             console.error('Invalid config: ', config);
             throw new Error();
