@@ -1,48 +1,6 @@
 //@ts-check
 
-import {
-    FSM,
-    StateNode
-} from '../src/lib';
-
-const config1 = {
-    id: 'machine1',
-    initial: 'First',
-    states: {
-
-        First: {
-            on: {
-                COMPLETE: 'Second'
-            }
-        },
-
-        Second: {
-            on: {
-                NEXT: 'Third',
-            }
-        },
-
-        Third: {
-            initial: 'ThirdPlaying',
-
-            on: {
-                EXIT: 'Second',
-                REPEAT: 'Third'
-            },
-
-            states: {
-
-                ThirdPlaying: {
-                    on: {
-                        FAILED: 'ThirdFailed',
-                    }
-                },
-
-                ThirdFailed: {}
-            }
-        }
-    }
-};
+import { FSM, StateNode } from '../src/lib';
 
 class First extends StateNode {
     get id() {
@@ -62,62 +20,201 @@ class Third extends StateNode {
     }
 }
 
-class ThirdPlaying extends StateNode {
+class Preloading extends StateNode {
     get id() {
-        return 'ThirdPlaying';
+        return 'Preloading';
     }
 }
 
-class ThirdFailed extends StateNode {
+class Gameplay extends StateNode {
     get id() {
-        return 'ThirdFailed';
+        return 'Gameplay';
     }
 }
 
-test('Check', async () => {
+class Complete extends StateNode {
+    get id() {
+        return 'Complete';
+    }
+}
 
-    const states = new Map();
-    states.set('First', First);
-    states.set('Second', Second);
-    states.set('Third', Third);
-    states.set('ThirdPlaying', ThirdPlaying);
-    states.set('ThirdFailed', ThirdFailed);
+class Playing extends StateNode {
+    get id() {
+        return 'Playing';
+    }
+}
 
-    const fsm = new FSM(config1, states);
+class Failed extends StateNode {
+    get id() {
+        return 'Failed';
+    }
+}
 
-    expect(fsm.getCurrentStateId()).toEqual('');
+const awaiter = async (delay) => await new Promise((r) => setTimeout(r, delay));
 
-    await fsm.onStart();
+jest.setTimeout(20000);
 
-    expect(fsm.getCurrentStateId()).toEqual('First');
+describe('FSM transactions', () => {
 
-    await fsm.onSend('COMPLETE');
-    expect(fsm.getCurrentStateId()).toEqual('Second');
+    it('Test sequence', async () => {
+        const states = new Map();
+        states.set('First', First);
+        states.set('Second', Second);
 
-    await fsm.onSend('COMPLETE');
-    expect(fsm.getCurrentStateId()).toEqual('Second');
+        const config = {
+            id: 'machine',
+            initial: 'First',
+            states: {
 
-    await fsm.onSend('NEXT');
-    expect(fsm.getCurrentStateId()).toEqual('ThirdPlaying');
+                First: {
+                    on: {
+                        GO_TO_SECOND: 'Second'
+                    }
+                },
 
-    await fsm.onSend('FAILED');
-    expect(fsm.getCurrentStateId()).toEqual('ThirdFailed');
+                Second: {
+                    on: {
+                        GO_TO_FIRST: 'First'
+                    }
+                }
+            }
+        };
 
-    await fsm.onSend('EXIT');
-    expect(fsm.getCurrentStateId()).toEqual('Second');
 
-    await fsm.onSend('NEXT');
-    expect(fsm.getCurrentStateId()).toEqual('ThirdPlaying');
+        const fsm = new FSM(config, states);
 
-    await fsm.onSend('REPEAT');
-    expect(fsm.getCurrentStateId()).toEqual('ThirdPlaying');
+        await fsm.onStart();
+    
+        /**
+         * Check the first state
+         */
+        const first = fsm.getCurrentState();
+    
+        expect(first.id).toEqual('First');
+    
+        first.onExit = async () => {
+            await awaiter(500);
+            expect(fsm.getCurrentState().id).toEqual('First');
+        };
+    
 
-    await fsm.onStop();
-    expect(fsm.getCurrentStateId()).toEqual('');
+        /**
+         * Go to the second state
+         */
+        fsm.onSend('GO_TO_SECOND');
+    
+        await awaiter(1000);
+        const second = fsm.getCurrentState();
+        expect(second.id).toEqual('Second');
+
+        fsm.onSend('GO_TO_SECOND');
+        expect(second.id).toEqual('Second');
+
+
+        /**
+         * Return to the first
+         */
+        second.onExit = async () => {
+            await awaiter(500);
+            expect(fsm.getCurrentState().id).toEqual('Second');
+        };
+    
+        fsm.onSend('GO_TO_FIRST');
+    
+        await awaiter(1000);
+
+        expect(fsm.getCurrentState().id).toEqual('First');
+
+        fsm.onSend('GO_TO_FIRST');
+
+        expect(fsm.getCurrentState().id).toEqual('First');
+    });
+
+    it('Test of hierarchical depth', async () => {
+        const config = {
+            id: 'machine',
+
+            initial: 'Preloading',
+
+            states: {
+        
+                Preloading: {
+                    on: {
+                        LOADED: 'Gameplay'
+                    }
+                },
+        
+                Gameplay: {
+                    initial: 'Playing',
+        
+                    on: {
+                        EXIT: 'Complete',
+                        REPEAT: 'Gameplay'
+                    },
+        
+                    states: {
+        
+                        Playing: {
+                            on: {
+                                FAILED: 'Failed',
+                            }
+                        },
+        
+                        Failed: {}
+                    }
+                },
+        
+                Complete: {}
+            }
+        };
+
+        const states = new Map();
+        states.set('Preloading', Preloading);
+        states.set('Gameplay', Gameplay);
+        states.set('Complete', Complete);
+        states.set('Playing', Playing);
+        states.set('Failed', Failed);
+
+        const fsm = new FSM(config, states);
+        await fsm.onStart();
+
+        expect(fsm.getCurrentState().id).toEqual('Preloading');
+
+        fsm.onSend('LOADED');
+
+        await awaiter(50);
+
+        expect(fsm.getCurrentState().id).toEqual('Playing');
+
+        const playing = fsm.getCurrentState();
+
+        playing.onExit = async () => {
+            await awaiter(500);
+            expect(fsm.getCurrentState()).toEqual(playing);
+        };
+
+        fsm.onSend('FAILED');
+
+        await awaiter(100);
+        expect(fsm.getCurrentState().id).toEqual('Playing');
+
+        await awaiter(500);
+        expect(fsm.getCurrentState().id).toEqual('Failed');
+
+
+        fsm.onSend('REPEAT');
+        await awaiter(200);
+        expect(fsm.getCurrentState().id).toEqual('Playing');
+
+
+        fsm.onSend('EXIT');
+        await awaiter(200);
+        expect(fsm.getCurrentState().id).toEqual('Complete');
+    });
 });
 
 
-describe('Check error extensions', () => {
+describe('Check error exceptions', () => {
 
     it('Test 1', () => {
         const states = new Map();
@@ -127,11 +224,50 @@ describe('Check error extensions', () => {
     });
 
     it('Test 2', () => {
+        const config = {
+            id: 'machine1',
+            initial: 'First',
+            states: {
+
+                First: {
+                    on: {
+                        COMPLETE: 'Second'
+                    }
+                },
+
+                Second: {
+                    on: {
+                        NEXT: 'Third',
+                    }
+                },
+
+                Third: {
+                    initial: 'ThirdPlaying',
+
+                    on: {
+                        EXIT: 'Second',
+                        REPEAT: 'Third'
+                    },
+
+                    states: {
+
+                        ThirdPlaying: {
+                            on: {
+                                FAILED: 'ThirdFailed',
+                            }
+                        },
+
+                        ThirdFailed: {}
+                    }
+                }
+            }
+        };
+
         const states = new Map();
         states.set('First', First);
         states.set('Second', Second);
 
-        expect(() => new FSM(config1, states)).toThrow(); 
+        expect(() => new FSM(config, states)).toThrow(); 
     });
     
     it('Test 3', () => {

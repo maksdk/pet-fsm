@@ -96,6 +96,7 @@ export abstract class StateNode implements IStateNode {
 
 
 export class FSM implements IFSM {
+    private _transactionsSequence: string[] = [];
     private _isSentWarnings = false;
     private _isStopped = false;
     private _isStarted = false;
@@ -159,7 +160,7 @@ export class FSM implements IFSM {
      * @description Sends an event to the machine.
      * @param {string} name
      */
-    public async onSend(eventName: string) {
+    public onSend(eventName: string) {
         if (this._isStopped) return;
         if (!this._isStarted) return;
 
@@ -172,10 +173,22 @@ export class FSM implements IFSM {
             this._warn(`Event: "${eventName}" is not found in the current state tree`);
             return;
         }
-    
-        this._exitFromStateByEvent(eventName);
 
-        await this._executeTransition();    
+
+        /**
+         * If any transaction is not ran to start the next immediately 
+         * In other way wait for the running transaction is completed
+         */
+        if (this._transactionsSequence.length === 0) {
+            this._nextTransation(eventName);
+        }
+
+
+        /**
+         * Add all transactions in the sequnce
+         * After they will be executed we need to delete them from the sequnce
+         */
+        this._transactionsSequence.push(eventName);
     }
 
     /**
@@ -202,6 +215,25 @@ export class FSM implements IFSM {
         }
 
         return last(this._statesStack).state.id;
+    }
+
+    public getCurrentState(): IStateNode | null {
+        if (!this._isStarted) {
+            this._warn('Machine is not started yet !!!');
+            return null;
+        }
+
+        if (this._isStopped) {
+            this._warn('Machine is already stopped !!!');
+            return null;
+        }
+
+        return last(this._statesStack).state;
+    }
+
+    private async _nextTransation(eventName: string) {
+        this._exitFromStateByEvent(eventName);
+        await this._executeTransition();
     }
 
     private async _executeTransition() {
@@ -299,7 +331,24 @@ export class FSM implements IFSM {
         }
 
 
+        /**
+         * Rewrite existed states stack
+         */
         this._statesStack = newStateStack;
+
+
+        /**
+         * Remove exectuted transaction from sequnce
+         */
+        this._transactionsSequence.shift();
+
+
+        /**
+         * Run next transaction if it is
+         */
+        if (this._transactionsSequence.length > 0) {
+            this._nextTransation(this._transactionsSequence[0]);
+        }
     }
 
     private _makeGraph(config: IStateConfig): IGraph {
