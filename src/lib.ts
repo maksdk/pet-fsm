@@ -1,7 +1,6 @@
 
 // TODO: Add parallel states
 // TODO: Create arrow functions insted of class methods to hide FSM functional
-// TODO: May remove the children / fullPath ? They are not used now
 // TODO: Get all events names in the beginning to check they in 'onStart' method and delete _checkAmongAllEvent method
 
 const last = (collection: any[]) => collection[collection.length - 1];
@@ -36,12 +35,10 @@ interface IStatesStackLeaf {
 }
 
 interface IGraphLeaf {
-    id: string;
-    parent: string;
+    stateId: string;
     transitions: { [key: string]: string };
-    fullPath: string;
+    uniqueId: string;
     initial: string;
-    children?: string[];
 }
 
 interface IGraph {
@@ -99,7 +96,7 @@ export abstract class StateNode implements IStateNode {
 
 
 export class FSM implements IFSM {
-    private _rooId = 'Root';
+    private _isSentWarnings = false;
     private _isStopped = false;
     private _isStarted = false;
     private _graph: IGraph = {};
@@ -135,7 +132,7 @@ export class FSM implements IFSM {
 
         this._isStarted = true;
 
-        this._enterToStateById(this._rooId);
+        this._enterToStateById('Root');
 
         await this._executeTransition();
     }
@@ -167,12 +164,12 @@ export class FSM implements IFSM {
         if (!this._isStarted) return;
 
         if (!this._checkAmongAllEvent(this._graph, eventName)) {
-            console.warn(`Event: "${eventName}" is not registered in the machine`);
+            this._warn(`Event: "${eventName}" is not registered in the machine`);
             return;
         }
 
         if (!this._checkEventInStack(eventName)) {
-            console.warn(`Event: "${eventName}" is not found in the current state tree`);
+            this._warn(`Event: "${eventName}" is not found in the current state tree`);
             return;
         }
     
@@ -195,12 +192,12 @@ export class FSM implements IFSM {
      */
     public getCurrentStateId(): string {
         if (!this._isStarted) {
-            console.warn('Machine is not started yet !!!');
+            this._warn('Machine is not started yet !!!');
             return '';
         }
 
         if (this._isStopped) {
-            console.warn('Machine is already stopped !!!');
+            this._warn('Machine is already stopped !!!');
             return '';
         }
 
@@ -225,7 +222,7 @@ export class FSM implements IFSM {
              * Find a config with the same id as the state id
              */
             const config = this._leafsStack.find((leaf) => {
-                return leaf.id === stateId && leaf.order === stateOrder;
+                return leaf.stateId === stateId && leaf.order === stateOrder;
             });
 
             /**
@@ -253,7 +250,7 @@ export class FSM implements IFSM {
              * Find a state with the same id as the config id
              */
             const state = newStateStack.find((l) => {
-                return l.state.id === leaf.id && l.order === leaf.order;
+                return l.state.id === leaf.stateId && l.order === leaf.order;
             });
 
 
@@ -264,14 +261,14 @@ export class FSM implements IFSM {
                 /**
                  * Find class in the list
                  */
-                if (!this.states.has(leaf.id)) {
-                    throw new Error(`State with id: "${leaf.id}" is not found`);
+                if (!this.states.has(leaf.stateId)) {
+                    throw new Error(`State with id: "${leaf.stateId}" is not found`);
                 }
 
-                const StateClass = this.states.get(leaf.id);
+                const StateClass = this.states.get(leaf.stateId);
 
                 if (!StateClass) {
-                    throw new Error(`State with id: "${leaf.id}" is not found`);
+                    throw new Error(`State with id: "${leaf.stateId}" is not found`);
                 }
 
                 /**
@@ -307,38 +304,37 @@ export class FSM implements IFSM {
 
     private _makeGraph(config: IStateConfig): IGraph {
 
-        const iter = (tree: IStateConfig, parent: string, nodeId: string, leafs = {}, path: string[] = []): IGraph => {
+        const iter = (tree: IStateConfig, nodeId: string, leafs = {}, path: string[] = []): IGraph => {
+            const uniqueId = [...path, nodeId].join('.');
+
             if (!tree.states) {
                 return {
                     ...leafs,
-                    [nodeId]: {
-                        id: nodeId,
-                        parent,
+                    [uniqueId]: {
+                        stateId: nodeId,
                         transitions: tree.on || {},
-                        fullPath: [...path, nodeId].join('.')
+                        uniqueId
                     }
                 };
             }
     
             return {
                 ...leafs,
-                [nodeId]: {
-                    id: nodeId,
-                    parent,
+                [uniqueId]: {
+                    stateId: nodeId,
                     transitions: tree.on || {},
-                    fullPath: [...path, nodeId].join('.'),
-                    initial: tree.initial,
-                    children: Object.keys(tree.states),
+                    uniqueId,
+                    initial: tree.initial
                 },
                 ...Object.entries(tree.states)
                     .reduce((acc, [key, subTree]) => ({
                         ...acc, 
-                        ...iter(subTree as IStateConfig, nodeId, key, leafs, [...path, nodeId])
+                        ...iter(subTree as IStateConfig, key, leafs, [...path, nodeId])
                     }), {})
             };
         };
         
-        return iter(config, '', this._rooId);
+        return iter(config, 'Root', {}, []);
     }
 
     private _exitFromStateByEvent(eventName: string) {
@@ -347,27 +343,42 @@ export class FSM implements IFSM {
         if (!child) return;
 
         if (child.transitions.hasOwnProperty(eventName)) {
-            const nextStateId = child.transitions[eventName];
-            this._enterToStateById(nextStateId);
+            const id = this._getNextStateUniqueIdByEvent(child, eventName);
+            this._enterToStateById(id);
             return;
         }
 
         this._exitFromStateByEvent(eventName);
     }
 
-    private _enterToStateById(stateId: string) {
-        if (!this._graph.hasOwnProperty(stateId)) {
-            console.error(`Such state id: "${stateId}" is not found in the graph: `, this._graph);
+    private _enterToStateById(uniqueId: string) {
+        if (!this._graph.hasOwnProperty(uniqueId)) {
+            console.error(`Such state id: "${uniqueId}" is not found in the graph: `, this._graph);
             throw new Error();
         }
 
         this._currentOrder += 1;
 
-        this._leafsStack.push({ order: this._currentOrder, ...this._graph[stateId] });
+        this._leafsStack.push({ order: this._currentOrder, ...this._graph[uniqueId] });
 
-        if (this._graph[stateId].initial) {
-            this._enterToStateById(this._graph[stateId].initial);
+        if (this._graph[uniqueId].initial) {
+            this._enterToStateById(`${uniqueId}.${this._graph[uniqueId].initial}`);
         }
+    }
+
+    private _getNextStateUniqueIdByEvent(child: IStackLeaf, eventName: string ): string {
+        return `${this._getParentUniqueId(child)}.${child.transitions[eventName]}`;
+    }
+
+    private _getParentUniqueId(child: IGraphLeaf): string {
+        const childUniqueIdPieces = child.uniqueId.split('.');
+        const parentUniqueIdPieces = childUniqueIdPieces.slice(0, childUniqueIdPieces.length - 1);
+
+        if (parentUniqueIdPieces.length === 0) {
+            return 'Root';
+        }
+
+        return parentUniqueIdPieces.join('.');
     }
 
     private _checkAmongAllEvent(graph: IGraph, eventName: string) {
@@ -465,5 +476,10 @@ export class FSM implements IFSM {
         }
         
         return true;
+    }
+
+    private _warn(message: string, payload: any = '') {
+        if (!this._isSentWarnings) return;
+        console.warn(message, payload);
     }
 }
