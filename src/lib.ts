@@ -4,7 +4,7 @@
 // TODO: May remove the children / fullPath ? They are not used now
 // TODO: Get all events names in the beginning to check they in 'onStart' method and delete _checkAmongAllEvent method
 
-const last = (collection) => collection[collection.length - 1];
+const last = (collection: any[]) => collection[collection.length - 1];
 
 export interface IFSM {
     onStart(): void;
@@ -305,9 +305,9 @@ export class FSM implements IFSM {
         this._statesStack = newStateStack;
     }
 
-    private _makeGraph(config: IStateConfig) {
+    private _makeGraph(config: IStateConfig): IGraph {
 
-        const iter = (tree: IStateConfig, parent, nodeId, leafs = {}, path = []) => {
+        const iter = (tree: IStateConfig, parent: string, nodeId: string, leafs = {}, path: string[] = []): IGraph => {
             if (!tree.states) {
                 return {
                     ...leafs,
@@ -333,16 +333,18 @@ export class FSM implements IFSM {
                 ...Object.entries(tree.states)
                     .reduce((acc, [key, subTree]) => ({
                         ...acc, 
-                        ...iter(subTree, nodeId, key, leafs, [...path, nodeId])
+                        ...iter(subTree as IStateConfig, nodeId, key, leafs, [...path, nodeId])
                     }), {})
             };
         };
         
-        return iter(config, null, this._rooId);
+        return iter(config, '', this._rooId);
     }
 
     private _exitFromStateByEvent(eventName: string) {
         const child = this._leafsStack.pop();
+
+        if (!child) return;
 
         if (child.transitions.hasOwnProperty(eventName)) {
             const nextStateId = child.transitions[eventName];
@@ -378,7 +380,7 @@ export class FSM implements IFSM {
 
     private _checkEventInStack(eventName: string): boolean {
 
-        const iter = (index: number, stack: IStackLeaf[]) => {
+        const iter = (index: number, stack: IStackLeaf[]): boolean => {
             if (!stack[index]) return false;
 
             const child = stack[index];
@@ -396,14 +398,14 @@ export class FSM implements IFSM {
     private _checkMachineConfig(config: IStateConfig): void | never {
         this._checkConfig(config);
 
-        this._checkTransions(config.states);
+        this._checkTransions(config.states || {});
 
         if (config.states) {
 
             this._checkStatesList(config.states);
 
             Object.values(config.states)
-                .forEach((s) => this._checkMachineConfig(s))
+                .forEach((s) => this._checkMachineConfig(s as IStateConfig))
         }
     }
 
@@ -430,7 +432,7 @@ export class FSM implements IFSM {
         const hasInitial = config.hasOwnProperty('initial') &&
             typeof config.initial === 'string';
 
-        if (hasStates && hasInitial) {
+        if (hasStates && hasInitial && config.states && config.initial) {
             if (!config.states.hasOwnProperty(config.initial)) {
                 console.error(`Such an initial state: "${config.initial} is not found in state config: `, config.states);
                 throw new Error();
