@@ -1,6 +1,6 @@
 //@ts-check
 
-import { FSM, StateNode } from '../src/lib';
+import { FSM, StateNode } from '../src/bin';
 
 class First extends StateNode {
     get id() {
