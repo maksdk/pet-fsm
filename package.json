@@ -2,7 +2,7 @@
     "name": "my-pet-fsm",
     "version": "1.0.0",
     "description": "My pet fsm",
-    "main": "src/bin/index.ts",
+    "main": "dist/main.js",
     "scripts": {
         "test": "jest",
         "type:check": "tsc --noEmit",
