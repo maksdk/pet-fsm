@@ -63,8 +63,8 @@ interface IConstructableStateNode {
 
 export abstract class StateNode implements IStateNode {
     constructor(
-        private readonly fsm: IFSM,
-        private readonly parent: IStateNode | null
+        protected readonly fsm: IFSM,
+        protected readonly parent: IStateNode | null
     ) {}
 
     public abstract id: string;
