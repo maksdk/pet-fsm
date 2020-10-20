@@ -135,6 +135,12 @@ export class FSM implements IFSM {
 
         this._enterToStateById('Root');
 
+        /**
+         * Add all transactions in the sequnce
+         * After they will be executed we need to delete them from the sequnce
+         */
+        this._transactionsSequence.push('__START_MACHINE__');
+
         await this._executeTransition();
     }
 
