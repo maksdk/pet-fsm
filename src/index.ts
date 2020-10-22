@@ -15,7 +15,7 @@ export interface IFSM {
 export interface IStateNode {
     readonly id: string;
     onUpdate(dt: number): void;
-    onPrepare(): Promise<void>;
+    // onPrepare(): Promise<void>;
     onEnter(): Promise<void>;
     onExit(): Promise<void>;
 }
@@ -73,7 +73,7 @@ export abstract class StateNode implements IStateNode {
      * @description The method is called before enter to the state and before 'onUpdate' method is run. 
      * Here you can prepare some props before all activities. 
      */
-    public async onPrepare(): Promise<void> {}
+    // public async onPrepare(): Promise<void> {}
 
     /**
      * @description The method is called when we enter to a new state. 
@@ -316,7 +316,7 @@ export class FSM implements IFSM {
                 /**
                  * Prepare a new state
                  */
-                await s.onPrepare();
+                // await s.onPrepare();
 
                 /**
                  * Add to stack to run 'onUpdate' method before 'onEnter' calling 
